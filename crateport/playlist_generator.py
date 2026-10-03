@@ -132,6 +132,8 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
                     "Fetched %d top tracks for artist %s", len(top), entry.artist
                 )
                 for t in top:
+                    if artist_tracks_count >= limit_per_source:
+                        break
                     matches, deezer_artist = _artist_name_matches(t, entry.artist)
                     if not matches:
                         logger.warning(
@@ -220,6 +222,8 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
             )
             mb_tracks_count = 0
             for rec in recordings:
+                if mb_tracks_count >= limit_per_source:
+                    break
                 t: Track | None = None
                 isrcs: list[str] = rec.get("isrcs") or []
                 if isrcs:
