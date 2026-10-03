@@ -17,6 +17,7 @@ from typing import Any
 import requests
 from sqlalchemy.orm import Session
 
+from .artist_resolver import resolve_artist
 from .database import get_session, is_fresh
 from .models import Album, Artist, Track, artist_top_tracks
 
@@ -99,15 +100,26 @@ class DeezerClient:
     # Artist
     # ------------------------------------------------------------------
 
-    def search_artist(self, name: str) -> Artist | None:
+    def search_artist(  # pylint: disable=too-many-return-statements
+        self, name: str, interactive: bool = False
+    ) -> Artist | None:
         """Return the best-matching :class:`~models.Artist` for *name*.
 
         Results are cached; a fresh cached entry is returned without hitting
         the API.
 
-        When multiple artists match the exact name, returns the one with
-        the most fans (highest popularity) to avoid selecting obscure artists
-        with the same name.
+        When multiple artists match the exact name:
+        - If *interactive* is False (default): selects the one with the most
+          fans (highest popularity).
+        - If *interactive* is True: prompts the user to choose.
+
+        Parameters
+        ----------
+        name:
+            The artist name to search for.
+        interactive:
+            If True, prompts the user when multiple exact matches exist.
+            If False, automatically selects the most popular.
         """
         with get_session() as db:
             cached = _find_artist_by_name(db, name)
@@ -142,15 +154,16 @@ class DeezerClient:
                 )
                 return None
 
-            # If multiple exact matches, pick the most popular (most fans)
+            # If multiple exact matches, disambiguate
             if len(exact_matches) > 1:
-                best = max(exact_matches, key=lambda x: x.get("nb_fan", 0) or 0)
-                logger.debug(
-                    "Multiple matches for artist %r; selected %r with %d fans",
+                best = resolve_artist(
                     name,
-                    best.get("name"),
-                    best.get("nb_fan", 0),
+                    exact_matches,
+                    always_select_first=not interactive,
                 )
+                if best is None:
+                    logger.info("User skipped artist selection for %r", name)
+                    return None
             else:
                 best = exact_matches[0]
 

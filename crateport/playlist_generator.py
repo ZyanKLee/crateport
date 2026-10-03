@@ -76,6 +76,7 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
     description: str = "",
     public: bool = False,
     limit_per_source: int = 10,
+    interactive: bool = False,
 ) -> GeneratedPlaylist:
     """Resolve *parsed* input to tracks and persist a :class:`~models.GeneratedPlaylist`.
 
@@ -98,6 +99,9 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
         Whether the playlist should be public on Deezer.
     limit_per_source:
         Maximum number of tracks fetched per artist / album.
+    interactive:
+        If True, prompts user when multiple artists have the same exact name.
+        If False (default), automatically selects the most popular.
     """
     if client is None:
         client = DeezerClient()
@@ -118,7 +122,7 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
     if parsed.mode == InputMode.ARTISTS:
         for entry in parsed.artists:
             logger.info("Processing artist: %s", entry.artist)
-            artist = client.search_artist(entry.artist)
+            artist = client.search_artist(entry.artist, interactive=interactive)
             artist_tracks_count = 0
             if artist is not None:
                 top = client.get_artist_top_tracks(

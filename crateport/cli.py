@@ -121,6 +121,13 @@ def cli() -> None:
 @click.option(
     "-v", "--verbose", is_flag=True, default=False, help="Enable debug logging."
 )
+@click.option(
+    "-i",
+    "--interactive",
+    is_flag=True,
+    default=False,
+    help="Prompt when multiple artists have the same exact name.",
+)
 def generate(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
     input_file: Path,
     mode: str | None,
@@ -132,6 +139,7 @@ def generate(  # pylint: disable=too-many-arguments,too-many-positional-argument
     output_dir: Path | None,
     db_url: str | None,
     verbose: bool,
+    interactive: bool,
 ) -> None:
     """Generate a playlist from INPUT_FILE and export it to standard formats.
 
@@ -169,6 +177,7 @@ def generate(  # pylint: disable=too-many-arguments,too-many-positional-argument
         description=description,
         public=public,
         limit_per_source=limit,
+        interactive=interactive,
     )
 
     tracks_data = load_tracks_data(playlist.id)
