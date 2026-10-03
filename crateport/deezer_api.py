@@ -184,19 +184,23 @@ class DeezerClient:
                 )
                 return None
 
-            # Cache all exact matches for future reference
+            # Enrich exact matches with full artist data (incl. nb_fan)
+            enriched_matches = []
             for match in exact_matches:
-                _cache_artist_search_result(db, name, match["id"])
+                full_data = self._get(f"/artist/{match['id']}")
+                enriched_matches.append(full_data)
+                # Cache all exact matches for future reference
+                _cache_artist_search_result(db, name, full_data["id"])
 
             # Choose the best match
-            if len(exact_matches) == 1:
-                best = exact_matches[0]
+            if len(enriched_matches) == 1:
+                best = enriched_matches[0]
                 logger.debug("Single exact match for artist %r", name)
             else:
                 # Multiple matches: ask user (if interactive) or auto-select
                 best = resolve_artist(
                     name,
-                    exact_matches,
+                    enriched_matches,
                     always_select_first=not interactive,
                 )
                 if best is None:
