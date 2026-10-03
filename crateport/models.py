@@ -24,6 +24,15 @@ class Base(DeclarativeBase):  # pylint: disable=too-few-public-methods
 
 
 # ---------------------------------------------------------------------------
+# Core entities
+# ---------------------------------------------------------------------------
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# ---------------------------------------------------------------------------
 # Association tables (many-to-many)
 # ---------------------------------------------------------------------------
 
@@ -44,14 +53,13 @@ playlist_tracks = Table(
     Column("position", Integer, default=0),
 )
 
-
-# ---------------------------------------------------------------------------
-# Core entities
-# ---------------------------------------------------------------------------
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+artist_search_results = Table(
+    "artist_search_results",
+    Base.metadata,
+    Column("search_name", String, primary_key=True),
+    Column("artist_id", BigInteger, ForeignKey("artists.id"), primary_key=True),
+    Column("cached_at", DateTime, default=_utcnow),
+)
 
 
 class Artist(Base):  # pylint: disable=too-few-public-methods
