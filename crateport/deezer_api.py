@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session
 
 from .artist_resolver import resolve_artist
 from .database import get_session, is_fresh
-from .models import Album, Artist, Track, artist_search_results, artist_top_tracks
+from .models import (Album, Artist, Track, artist_search_results,
+                     artist_top_tracks)
 
 logger = logging.getLogger(__name__)
 
@@ -176,26 +177,58 @@ class DeezerClient:
                 item for item in items if item.get("name", "").casefold() == q
             ]
 
+            # If no exact matches, try fuzzy matching with decreasing thresholds
             if not exact_matches:
-                logger.warning(
-                    "No exact artist match for %r (candidates: %s)",
-                    name,
-                    [i.get("name") for i in items],
-                )
-                return None
+                logger.debug("No exact match for %r, trying fuzzy matching", name)
+                fuzzy_90 = _fuzzy_match(items, name, key="name", threshold=0.90)
+                fuzzy_80 = _fuzzy_match(items, name, key="name", threshold=0.80)
 
-            # Enrich exact matches with full artist data (incl. nb_fan)
+                if fuzzy_90:
+                    logger.info(
+                        "Found fuzzy match (90%%) for %r: %r",
+                        name,
+                        fuzzy_90.get("name"),
+                    )
+                    exact_matches = [fuzzy_90]
+                elif fuzzy_80:
+                    logger.info(
+                        "Found fuzzy match (80%%) for %r: %r",
+                        name,
+                        fuzzy_80.get("name"),
+                    )
+                    exact_matches = [fuzzy_80]
+                else:
+                    logger.warning(
+                        "No artist match (exact or fuzzy) for %r (candidates: %s)",
+                        name,
+                        [i.get("name") for i in items],
+                    )
+                    return None
+
+            # Enrich matches with full artist data (incl. nb_fan)
             enriched_matches = []
             for match in exact_matches:
                 full_data = self._get(f"/artist/{match['id']}")
                 enriched_matches.append(full_data)
-                # Cache all exact matches for future reference
+                # Cache all matches for future reference
                 _cache_artist_search_result(db, name, full_data["id"])
 
             # Choose the best match
             if len(enriched_matches) == 1:
                 best = enriched_matches[0]
-                logger.debug("Single exact match for artist %r", name)
+                # If this was a fuzzy match, ask user for confirmation
+                if enriched_matches[0].get("name", "").casefold() != name.casefold():
+                    import click
+
+                    msg = (
+                        f"Did you mean '{enriched_matches[0].get('name')}'? "
+                        f"[y/n, default=y]: "
+                    )
+                    confirmed = click.confirm(msg, default=True)
+                    if not confirmed:
+                        logger.info("User rejected fuzzy match for %r", name)
+                        return None
+                logger.debug("Selected artist: %r", name)
             else:
                 # Multiple matches: ask user (if interactive) or auto-select
                 best = resolve_artist(
@@ -555,6 +588,41 @@ def _best_match(items: list[dict], query: str, *, key: str) -> dict | None:
         if item.get(key, "").casefold() == q:
             return item
     return None
+
+
+def _fuzzy_match(
+    items: list[dict], query: str, *, key: str, threshold: float = 0.9
+) -> dict | None:
+    """Return the best-matching item using fuzzy string matching.
+
+    Finds the item with the highest similarity to query (case-insensitive).
+    Returns the best match only if similarity >= threshold, else None.
+
+    Parameters
+    ----------
+    items:
+        List of dictionaries to search
+    query:
+        The query string to match
+    key:
+        The dictionary key to match against
+    threshold:
+        Minimum similarity (0.0-1.0) to accept a match
+    """
+    from difflib import SequenceMatcher
+
+    q = query.casefold()
+    best_item = None
+    best_ratio = 0.0
+
+    for item in items:
+        candidate = item.get(key, "").casefold()
+        ratio = SequenceMatcher(None, q, candidate).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_item = item
+
+    return best_item if best_ratio >= threshold else None
 
 
 def _find_artist_by_name(db: Session, name: str) -> Artist | None:
