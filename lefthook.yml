@@ -17,7 +17,7 @@ pre-commit:
   commands:
 
     black:
-      run: $(poetry env list --full-path | awk '{print $1}' | head -1)/bin/black crateport/
+      run: $(poetry env list --full-path | awk '{print $1}' | head -1)/bin/black --target-version py314 crateport/
       stage_fixed: true
 
     isort:

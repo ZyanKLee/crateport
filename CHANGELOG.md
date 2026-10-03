@@ -1,6 +1,48 @@
 # CHANGELOG
 
 
+## v1.2.0 (2026-10-03)
+
+### Bug Fixes
+
+- Enforce per-artist track limits across all fallback stages
+  ([`1f21ddd`](https://github.com/ZyanKLee/crateport/commit/1f21ddd25f121b0e0c0432baa65ed91e510119c1))
+
+- Load full artist data with fan counts for disambiguation
+  ([`98482f5`](https://github.com/ZyanKLee/crateport/commit/98482f5baca5941150bbc7fe50551ba57b62c24c))
+
+- Show interactive choice every time when multiple artists exist with -i flag
+  ([`28ee720`](https://github.com/ZyanKLee/crateport/commit/28ee720f340790e19f7ca3b94350a2e55e76fab2))
+
+### Features
+
+- Add album-based fallback for artist track discovery
+  ([`08b122b`](https://github.com/ZyanKLee/crateport/commit/08b122b2cdd41ee38afab1d5d5ffce5e54e03581))
+
+- Add fuzzy matching for artist search with user confirmation
+  ([`d42386e`](https://github.com/ZyanKLee/crateport/commit/d42386edbcf2599a4f87a334fc7a88b5ce12c02a))
+
+- Add interactive artist disambiguation for name collisions
+  ([`9c2c195`](https://github.com/ZyanKLee/crateport/commit/9c2c195b4613de3e0dc98e669e668c27c6dd8378))
+
+- Add search_tracks_by_artist for broader track lookups
+  ([`1fed09d`](https://github.com/ZyanKLee/crateport/commit/1fed09d5018c83276724e14d3a84ec6ca98cd315))
+
+- Improve artist track resolution with fallback search for collaborations
+  ([`d85dd70`](https://github.com/ZyanKLee/crateport/commit/d85dd706032c06da69370bb1796a3fded29b5386))
+
+- Select most popular artist when multiple exact name matches exist
+  ([`e2014d8`](https://github.com/ZyanKLee/crateport/commit/e2014d8de53d803af69d766fddc37f436a3281b9))
+
+- Show track count per artist/album during playlist generation
+  ([`2a843a1`](https://github.com/ZyanKLee/crateport/commit/2a843a1e7345c5a47b1bcce924612820fa2d23e3))
+
+### Refactoring
+
+- Implement ID-based artist caching for robust name disambiguation
+  ([`a6e006b`](https://github.com/ZyanKLee/crateport/commit/a6e006b9def17f8f327c3cd882fda417b136a6d9))
+
+
 ## v1.1.0 (2026-05-10)
 
 ### Chores

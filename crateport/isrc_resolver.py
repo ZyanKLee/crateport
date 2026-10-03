@@ -11,6 +11,8 @@ from typing import Any
 
 import click
 
+from .prompts import prompt_for_index
+
 
 def resolve_isrc(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     title: str,
@@ -96,23 +98,8 @@ def _pick_candidate(
         alb_name = c.get("album", {}).get("title", "?")
         click.echo(f"    [{idx}] {a_name} – {c.get('title', '?')}  (album: {alb_name})")
 
-    while True:
-        raw = (
-            click.prompt(
-                "  Pick number, Enter=1, s=skip", default="1", show_default=False
-            )
-            .strip()
-            .lower()
-        )
-        if raw == "s":
-            return None
-        try:
-            n = int(raw)
-            if 1 <= n <= len(candidates):
-                return candidates[n - 1]
-        except ValueError:
-            pass
-        click.echo("  Invalid choice, try again.")
+    idx = prompt_for_index(len(candidates), "  Pick number, Enter=1, s=skip")
+    return candidates[idx] if idx is not None else None
 
 
 def _pick_mb_candidate(
@@ -163,23 +150,8 @@ def _pick_mb_candidate(
         isrc_str = isrcs[0] if isrcs else "no ISRC"
         click.echo(f"    [{idx}] {_mb_credit(r)} – {r.get('title', '?')}  ({isrc_str})")
 
-    while True:
-        raw = (
-            click.prompt(
-                "  Pick number, Enter=1, s=skip", default="1", show_default=False
-            )
-            .strip()
-            .lower()
-        )
-        if raw == "s":
-            return None
-        try:
-            n = int(raw)
-            if 1 <= n <= len(pool):
-                return pool[n - 1]
-        except ValueError:
-            pass
-        click.echo("  Invalid choice, try again.")
+    idx = prompt_for_index(len(pool), "  Pick number, Enter=1, s=skip")
+    return pool[idx] if idx is not None else None
 
 
 def _mb_credit(recording: dict) -> str:

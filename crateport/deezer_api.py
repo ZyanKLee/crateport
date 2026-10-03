@@ -12,15 +12,16 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from typing import Any
 
+import click
 import requests
 from sqlalchemy.orm import Session
 
 from .artist_resolver import resolve_artist
 from .database import get_session, is_fresh
-from .models import (Album, Artist, Track, artist_search_results,
-                     artist_top_tracks)
+from .models import Album, Artist, Track, artist_search_results, artist_top_tracks
 
 logger = logging.getLogger(__name__)
 
@@ -171,74 +172,18 @@ class DeezerClient:
                 logger.warning("No artist found for %r", name)
                 return None
 
-            # Find all exact name matches (case-insensitive)
-            q = name.casefold()
-            exact_matches = [
-                item for item in items if item.get("name", "").casefold() == q
-            ]
+            # Try exact and fuzzy matching
+            matches = _find_artist_matches(items, name)
+            if not matches:
+                return None
 
-            # If no exact matches, try fuzzy matching with decreasing thresholds
-            if not exact_matches:
-                logger.debug("No exact match for %r, trying fuzzy matching", name)
-                fuzzy_90 = _fuzzy_match(items, name, key="name", threshold=0.90)
-                fuzzy_80 = _fuzzy_match(items, name, key="name", threshold=0.80)
-
-                if fuzzy_90:
-                    logger.info(
-                        "Found fuzzy match (90%%) for %r: %r",
-                        name,
-                        fuzzy_90.get("name"),
-                    )
-                    exact_matches = [fuzzy_90]
-                elif fuzzy_80:
-                    logger.info(
-                        "Found fuzzy match (80%%) for %r: %r",
-                        name,
-                        fuzzy_80.get("name"),
-                    )
-                    exact_matches = [fuzzy_80]
-                else:
-                    logger.warning(
-                        "No artist match (exact or fuzzy) for %r (candidates: %s)",
-                        name,
-                        [i.get("name") for i in items],
-                    )
-                    return None
-
-            # Enrich matches with full artist data (incl. nb_fan)
-            enriched_matches = []
-            for match in exact_matches:
-                full_data = self._get(f"/artist/{match['id']}")
-                enriched_matches.append(full_data)
-                # Cache all matches for future reference
-                _cache_artist_search_result(db, name, full_data["id"])
+            # Enrich matches with full artist data and cache them
+            enriched_matches = _enrich_artist_matches(self, db, name, matches)
 
             # Choose the best match
-            if len(enriched_matches) == 1:
-                best = enriched_matches[0]
-                # If this was a fuzzy match, ask user for confirmation
-                if enriched_matches[0].get("name", "").casefold() != name.casefold():
-                    import click
-
-                    msg = (
-                        f"Did you mean '{enriched_matches[0].get('name')}'? "
-                        f"[y/n, default=y]: "
-                    )
-                    confirmed = click.confirm(msg, default=True)
-                    if not confirmed:
-                        logger.info("User rejected fuzzy match for %r", name)
-                        return None
-                logger.debug("Selected artist: %r", name)
-            else:
-                # Multiple matches: ask user (if interactive) or auto-select
-                best = resolve_artist(
-                    name,
-                    enriched_matches,
-                    always_select_first=not interactive,
-                )
-                if best is None:
-                    logger.info("User skipped artist selection for %r", name)
-                    return None
+            best = _select_best_artist(name, enriched_matches, interactive)
+            if best is None:
+                return None
 
             artist = _upsert_artist(db, best)
             db.commit()
@@ -702,8 +647,6 @@ def _fuzzy_match(
     threshold:
         Minimum similarity (0.0-1.0) to accept a match
     """
-    from difflib import SequenceMatcher
-
     q = query.casefold()
     best_item = None
     best_ratio = 0.0
@@ -716,6 +659,70 @@ def _fuzzy_match(
             best_item = item
 
     return best_item if best_ratio >= threshold else None
+
+
+def _find_artist_matches(items: list[dict], name: str) -> list[dict] | None:
+    """Find exact or fuzzy matches for an artist name.
+
+    Returns the list of matching items, or None if no matches found.
+    """
+    q = name.casefold()
+    exact_matches = [item for item in items if item.get("name", "").casefold() == q]
+
+    if exact_matches:
+        return exact_matches
+
+    logger.debug("No exact match for %r, trying fuzzy matching", name)
+    fuzzy_90 = _fuzzy_match(items, name, key="name", threshold=0.90)
+    fuzzy_80 = _fuzzy_match(items, name, key="name", threshold=0.80)
+
+    if fuzzy_90:
+        logger.info("Found fuzzy match (90%%) for %r: %r", name, fuzzy_90.get("name"))
+        return [fuzzy_90]
+    if fuzzy_80:
+        logger.info("Found fuzzy match (80%%) for %r: %r", name, fuzzy_80.get("name"))
+        return [fuzzy_80]
+
+    logger.warning(
+        "No artist match (exact or fuzzy) for %r (candidates: %s)",
+        name,
+        [i.get("name") for i in items],
+    )
+    return None
+
+
+def _enrich_artist_matches(
+    client: DeezerClient, db: Session, name: str, matches: list[dict]
+) -> list[dict]:
+    """Fetch full artist data and cache all matches."""
+    enriched = []
+    for match in matches:
+        full_data = client._get(
+            f"/artist/{match['id']}"
+        )  # pylint: disable=protected-access
+        enriched.append(full_data)
+        _cache_artist_search_result(db, name, full_data["id"])
+    return enriched
+
+
+def _select_best_artist(
+    name: str, candidates: list[dict], interactive: bool
+) -> dict | None:
+    """Select best artist from candidates, prompting if needed."""
+    if len(candidates) == 1:
+        best = candidates[0]
+        if best.get("name", "").casefold() != name.casefold():
+            msg = f"Did you mean '{best.get('name')}'? [y/n, default=y]: "
+            confirmed = click.confirm(msg, default=True)
+            if not confirmed:
+                logger.info("User rejected fuzzy match for %r", name)
+                return None
+        return best
+
+    best = resolve_artist(name, candidates, always_select_first=not interactive)
+    if best is None:
+        logger.info("User skipped artist selection for %r", name)
+    return best
 
 
 def _find_artist_by_name(db: Session, name: str) -> Artist | None:

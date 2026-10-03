@@ -10,6 +10,8 @@ from typing import Any
 
 import click
 
+from .prompts import prompt_for_index
+
 
 def resolve_artist(
     name: str,
@@ -67,22 +69,9 @@ def resolve_artist(
         if link:
             click.echo(f"         {link}")
 
-    while True:
-        raw = (
-            click.prompt(
-                "  Pick number, Enter=1, s=skip", default="1", show_default=False
-            )
-            .strip()
-            .lower()
-        )
-        if raw == "s":
-            return None
-        try:
-            n = int(raw)
-            if 1 <= n <= len(exact_matches):
-                chosen = exact_matches[n - 1]
-                click.echo(f"  → Selected: {chosen.get('name')}")
-                return chosen
-        except ValueError:
-            pass
-        click.echo("  Invalid choice, try again.")
+    idx = prompt_for_index(len(exact_matches), "  Pick number, Enter=1, s=skip")
+    if idx is not None:
+        chosen = exact_matches[idx]
+        click.echo(f"  → Selected: {chosen.get('name')}")
+        return chosen
+    return None
