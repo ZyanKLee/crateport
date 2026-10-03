@@ -104,6 +104,10 @@ class DeezerClient:
 
         Results are cached; a fresh cached entry is returned without hitting
         the API.
+
+        When multiple artists match the exact name, returns the one with
+        the most fans (highest popularity) to avoid selecting obscure artists
+        with the same name.
         """
         with get_session() as db:
             cached = _find_artist_by_name(db, name)
@@ -124,15 +128,32 @@ class DeezerClient:
                 logger.warning("No artist found for %r", name)
                 return None
 
-            # Pick the result whose name matches exactly (case-insensitive)
-            best = _best_match(items, name, key="name")
-            if best is None:
+            # Find all exact name matches (case-insensitive)
+            q = name.casefold()
+            exact_matches = [
+                item for item in items if item.get("name", "").casefold() == q
+            ]
+
+            if not exact_matches:
                 logger.warning(
                     "No exact artist match for %r (candidates: %s)",
                     name,
                     [i.get("name") for i in items],
                 )
                 return None
+
+            # If multiple exact matches, pick the most popular (most fans)
+            if len(exact_matches) > 1:
+                best = max(exact_matches, key=lambda x: x.get("nb_fan", 0) or 0)
+                logger.debug(
+                    "Multiple matches for artist %r; selected %r with %d fans",
+                    name,
+                    best.get("name"),
+                    best.get("nb_fan", 0),
+                )
+            else:
+                best = exact_matches[0]
+
             artist = _upsert_artist(db, best)
             return artist
 
