@@ -11,6 +11,9 @@
 - Load full artist data with fan counts for disambiguation
   ([`98482f5`](https://github.com/ZyanKLee/crateport/commit/98482f5baca5941150bbc7fe50551ba57b62c24c))
 
+- Pylint disable comment placement and isort/black config
+  ([`2230930`](https://github.com/ZyanKLee/crateport/commit/2230930839804ee398330bb80807d33a77aaaf58))
+
 - Show interactive choice every time when multiple artists exist with -i flag
   ([`28ee720`](https://github.com/ZyanKLee/crateport/commit/28ee720f340790e19f7ca3b94350a2e55e76fab2))
 
@@ -41,6 +44,9 @@
 
 - Implement ID-based artist caching for robust name disambiguation
   ([`a6e006b`](https://github.com/ZyanKLee/crateport/commit/a6e006b9def17f8f327c3cd882fda417b136a6d9))
+
+- Simplify search_artist() by extracting helper functions
+  ([`633357f`](https://github.com/ZyanKLee/crateport/commit/633357faf0eb656a212f412fe88b356e0d24d1b5))
 
 
 ## v1.1.0 (2026-05-10)
