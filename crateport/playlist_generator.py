@@ -46,6 +46,27 @@ def _artist_name_matches(track: Track, expected: str) -> tuple[bool, str | None]
         return matches, artist.name
 
 
+def _artist_name_matches_by_id(artist_id: int | None, expected: str) -> bool:
+    """Check if an artist ID matches the expected artist name (case-insensitive).
+
+    Used in fallback search; stricter than _artist_name_matches which is lenient
+    when artist cannot be determined (to avoid silently dropping tracks).
+    """
+    if artist_id is None:
+        return False
+    with get_session() as db:
+        artist: Artist | None = db.get(Artist, artist_id)
+        if artist is None:
+            return False
+        name_on_deezer = artist.name.casefold()
+        name_expected = expected.casefold()
+        return (
+            name_on_deezer == name_expected
+            or name_on_deezer in name_expected
+            or name_expected in name_on_deezer
+        )
+
+
 def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too-many-branches,too-many-statements,too-many-nested-blocks
     parsed: ParsedInput,
     *,
@@ -96,8 +117,14 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
         for entry in parsed.artists:
             logger.info("Processing artist: %s", entry.artist)
             artist = client.search_artist(entry.artist)
+            artist_tracks_count = 0
             if artist is not None:
-                top = client.get_artist_top_tracks(artist.id, limit=limit_per_source)
+                top = client.get_artist_top_tracks(
+                    artist.id, limit=max(limit_per_source * 3, 50)
+                )
+                logger.debug(
+                    "Fetched %d top tracks for artist %s", len(top), entry.artist
+                )
                 for t in top:
                     matches, deezer_artist = _artist_name_matches(t, entry.artist)
                     if not matches:
@@ -110,6 +137,32 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
                         )
                         continue
                     _add(t)
+                    artist_tracks_count += 1
+
+                # Fallback: if top tracks filtered too many collaborations, search for more
+                if artist_tracks_count < max(1, limit_per_source // 2):
+                    logger.info(
+                        "Only found %d tracks from %s via top tracks; "
+                        "searching for additional tracks",
+                        artist_tracks_count,
+                        entry.artist,
+                    )
+                    candidates = client.search_track_candidates(
+                        entry.artist, limit=limit_per_source
+                    )
+                    for candidate in candidates:
+                        if candidate["id"] in seen_ids:
+                            continue
+                        # Check if candidate's primary artist matches
+                        candidate_artist_id = candidate.get("artist", {}).get("id")
+                        if _artist_name_matches_by_id(
+                            candidate_artist_id, entry.artist
+                        ):
+                            t = client.get_track(candidate["id"])
+                            _add(t)
+                            artist_tracks_count += 1
+                            if artist_tracks_count >= limit_per_source:
+                                break
                 continue
 
             # ---- MusicBrainz fallback ----------------------------------------

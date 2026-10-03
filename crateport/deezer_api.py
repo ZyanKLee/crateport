@@ -23,7 +23,7 @@ from .models import Album, Artist, Track, artist_top_tracks
 logger = logging.getLogger(__name__)
 
 _BASE = "https://api.deezer.com"
-_DEFAULT_TOP_LIMIT = 50
+_DEFAULT_TOP_LIMIT = 100
 _RATE_LIMIT_DELAY = 0.3  # seconds between requests to stay well under limits
 
 
