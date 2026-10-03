@@ -122,54 +122,42 @@ class DeezerClient:
             If False, automatically selects the most popular.
         """
         with get_session() as db:
-            # Try to load from cached search results
-            cached_ids = _get_cached_artist_ids_for_search(db, name)
-            if cached_ids:
-                if len(cached_ids) == 1:
-                    # Single cached match: use it directly
-                    artist = db.get(Artist, cached_ids[0])
-                    if artist and is_fresh(artist.cached_at):
-                        logger.debug(
-                            "Cache hit (ID-based): artist %r (id=%s)",
-                            name,
-                            cached_ids[0],
-                        )
-                        return artist
-                elif interactive:
-                    # Multiple cached matches + interactive mode: show them
-                    artists = [db.get(Artist, aid) for aid in cached_ids]
-                    artists = [a for a in artists if a is not None]
-                    if len(artists) > 1:
-                        candidates = [
-                            {
-                                "id": a.id,
-                                "name": a.name,
-                                "nb_fan": a.nb_fan,
-                                "link": a.link,
-                            }
-                            for a in artists
-                        ]
-                        chosen = resolve_artist(
-                            name, candidates, always_select_first=False
-                        )
-                        if chosen is None:
-                            logger.info("User skipped artist selection for %r", name)
-                            return None
-                        artist = db.get(Artist, chosen["id"])
-                        if artist:
-                            logger.debug(
-                                "Cache hit (ID-based, user selected): artist %r", name
-                            )
-                            return artist
+            # Check if we have cached search results
+            cached_candidates = _get_cached_artist_ids_for_search(db, name)
 
-            # Not in cache or need fresh data: query API
+            # If single cached match and not interactive: use directly
+            if cached_candidates and len(cached_candidates) == 1 and not interactive:
+                artist = db.get(Artist, cached_candidates[0]["id"])
+                if artist and is_fresh(artist.cached_at):
+                    logger.debug(
+                        "Cache hit (single match): artist %r (id=%s)",
+                        name,
+                        cached_candidates[0]["id"],
+                    )
+                    return artist
+
+            # If multiple cached + interactive: ask again (user might want different one)
+            if cached_candidates and len(cached_candidates) > 1 and interactive:
+                logger.debug("Cache hit (multiple matches): showing choices again")
+                chosen = resolve_artist(
+                    name, cached_candidates, always_select_first=False
+                )
+                if chosen is None:
+                    logger.info("User skipped artist selection for %r", name)
+                    return None
+                artist = db.get(Artist, chosen["id"])
+                if artist:
+                    logger.debug("Cache hit (user selected): artist %r", name)
+                    return artist
+
+            # Not in cache, stale, or need fresh data: query API
             try:
                 data = self._get("/search/artist", {"q": name, "limit": 5})
             except DeezerTimeoutError:
                 logger.warning("Deezer timeout while searching for artist: %r", name)
-                # Fall back to any cached artist on timeout
-                if cached_ids:
-                    artist = db.get(Artist, cached_ids[0])
+                # Fall back to first cached artist on timeout
+                if cached_candidates:
+                    artist = db.get(Artist, cached_candidates[0]["id"])
                     if artist:
                         logger.debug("Timeout fallback: using cached artist %r", name)
                         return artist
@@ -196,12 +184,16 @@ class DeezerClient:
                 )
                 return None
 
-            # Choose the best match and cache it
+            # Cache all exact matches for future reference
+            for match in exact_matches:
+                _cache_artist_search_result(db, name, match["id"])
+
+            # Choose the best match
             if len(exact_matches) == 1:
                 best = exact_matches[0]
                 logger.debug("Single exact match for artist %r", name)
             else:
-                # Multiple matches: disambiguate
+                # Multiple matches: ask user (if interactive) or auto-select
                 best = resolve_artist(
                     name,
                     exact_matches,
@@ -212,8 +204,6 @@ class DeezerClient:
                     return None
 
             artist = _upsert_artist(db, best)
-            # Cache the selected artist ID for future searches
-            _cache_artist_search_result(db, name, artist.id)
             db.commit()
             return artist
 
@@ -569,8 +559,11 @@ def _find_artist_by_name(db: Session, name: str) -> Artist | None:
 
 def _get_cached_artist_ids_for_search(
     db: Session, search_name: str
-) -> list[int] | None:
-    """Return cached artist IDs for a search name, or None if cache is stale."""
+) -> list[dict] | None:
+    """Return cached artist candidates for a search name with full data.
+
+    Returns list of dicts {id, name, nb_fan, link} or None if cache is stale.
+    """
     results = (
         db.query(artist_search_results.c.artist_id)
         .filter(artist_search_results.c.search_name.ilike(search_name))
@@ -579,11 +572,24 @@ def _get_cached_artist_ids_for_search(
     if not results:
         return None
 
-    # Check if cache is fresh (at least one entry with fresh timestamp)
-    fresh_results = [
-        r for r in results if is_fresh(_get_cache_timestamp(db, search_name, r[0]))
+    artist_ids = [r[0] for r in results]
+    # Check if cache is fresh (all from same search)
+    if not is_fresh(_get_cache_timestamp(db, search_name, artist_ids[0])):
+        return None
+
+    # Get full artist data
+    artists = [db.get(Artist, aid) for aid in artist_ids]
+    artists = [a for a in artists if a is not None]
+
+    return [
+        {
+            "id": a.id,
+            "name": a.name,
+            "nb_fan": a.nb_fan,
+            "link": a.link,
+        }
+        for a in artists
     ]
-    return [r[0] for r in fresh_results] if fresh_results else None
 
 
 def _get_cache_timestamp(db: Session, search_name: str, artist_id: int) -> datetime:
@@ -600,12 +606,25 @@ def _get_cache_timestamp(db: Session, search_name: str, artist_id: int) -> datet
 
 
 def _cache_artist_search_result(db: Session, search_name: str, artist_id: int) -> None:
-    """Cache a search result mapping search_name to artist_id."""
-    db.execute(
-        artist_search_results.insert().values(
-            search_name=search_name, artist_id=artist_id
+    """Cache a search result mapping search_name to artist_id.
+
+    Ignores duplicates (same name+id already cached).
+    """
+    # Check before insert to avoid unique constraint violation
+    existing = (
+        db.query(artist_search_results.c.artist_id)
+        .filter(
+            artist_search_results.c.search_name.ilike(search_name),
+            artist_search_results.c.artist_id == artist_id,
         )
+        .first()
     )
+    if not existing:
+        db.execute(
+            artist_search_results.insert().values(
+                search_name=search_name, artist_id=artist_id
+            )
+        )
 
 
 def _upsert_artist(db: Session, data: dict) -> Artist:
