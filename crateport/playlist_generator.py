@@ -107,10 +107,12 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
     tracks: list[Track] = []
     seen_ids: set[int] = set()
 
-    def _add(t: Track | None) -> None:
+    def _add(t: Track | None) -> bool:
         if t is not None and t.id not in seen_ids:
             seen_ids.add(t.id)
             tracks.append(t)
+            return True
+        return False
 
     # ------------------------------------------------------------------
     if parsed.mode == InputMode.ARTISTS:
@@ -163,6 +165,10 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
                             artist_tracks_count += 1
                             if artist_tracks_count >= limit_per_source:
                                 break
+
+                logger.info(
+                    "Found %d tracks for artist: %s", artist_tracks_count, entry.artist
+                )
                 continue
 
             # ---- MusicBrainz fallback ----------------------------------------
@@ -188,6 +194,7 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
                 len(recordings),
                 entry.artist,
             )
+            mb_tracks_count = 0
             for rec in recordings:
                 t: Track | None = None
                 isrcs: list[str] = rec.get("isrcs") or []
@@ -208,7 +215,13 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
                 if t is None:
                     # Fall back to title + artist search on Deezer
                     t = client.search_track(rec["title"], artist=entry.artist)
-                _add(t)
+                if _add(t):
+                    mb_tracks_count += 1
+            logger.info(
+                "Found %d tracks for artist: %s (via MusicBrainz fallback)",
+                mb_tracks_count,
+                entry.artist,
+            )
 
     elif parsed.mode == InputMode.ALBUMS:
         for entry in parsed.albums:
@@ -217,8 +230,16 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
             if album is None:
                 logger.warning("Album not found: %s", entry.title)
                 continue
+            album_tracks_count = 0
             for t in client.get_album_tracks(album.id)[:limit_per_source]:
-                _add(t)
+                if _add(t):
+                    album_tracks_count += 1
+            logger.info(
+                "Found %d tracks for album: %s – %s",
+                album_tracks_count,
+                entry.title,
+                entry.artist,
+            )
 
     elif parsed.mode == InputMode.TRACKS:
         for entry in parsed.tracks:
