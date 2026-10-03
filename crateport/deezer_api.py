@@ -297,6 +297,70 @@ class DeezerClient:
         tracks = self.enrich_isrcs(tracks)
         return tracks
 
+    def get_artist_albums(self, artist_id: int, limit: int = 50) -> list[Album]:
+        """Return all albums for the given artist (with pagination).
+
+        Fetches up to *limit* albums for the artist from the API.
+        Each album is cached locally.
+
+        Parameters
+        ----------
+        artist_id:
+            Deezer artist ID
+        limit:
+            Maximum number of albums to fetch
+        """
+        with get_session() as db:
+            try:
+                data = self._get(f"/artist/{artist_id}/albums", {"limit": limit})
+            except (DeezerTimeoutError, DeezerAPIError) as exc:
+                logger.warning(
+                    "Deezer API error fetching albums for artist %s: %s",
+                    artist_id,
+                    exc,
+                )
+                return []
+
+            items = data.get("data", [])
+            albums = [_upsert_album(db, item, artist_id=artist_id) for item in items]
+        return albums
+
+    def get_artist_all_tracks(self, artist_id: int, limit: int = 50) -> list[Track]:
+        """Return all tracks from all albums of an artist (up to limit).
+
+        Fetches albums and then all tracks from each album.
+        Useful as a fallback when top tracks are empty/sparse.
+
+        Parameters
+        ----------
+        artist_id:
+            Deezer artist ID
+        limit:
+            Maximum total tracks to return
+        """
+        albums = self.get_artist_albums(artist_id, limit=limit)
+        if not albums:
+            logger.warning("No albums found for artist %s", artist_id)
+            return []
+
+        tracks: list[Track] = []
+        for album in albums:
+            album_tracks = self.get_album_tracks(album.id)
+            for track in album_tracks:
+                if len(tracks) >= limit:
+                    break
+                tracks.append(track)
+            if len(tracks) >= limit:
+                break
+
+        logger.debug(
+            "Fetched %d tracks from %d albums for artist %s",
+            len(tracks),
+            len(albums),
+            artist_id,
+        )
+        return tracks[:limit]
+
     # ------------------------------------------------------------------
     # Album
     # ------------------------------------------------------------------

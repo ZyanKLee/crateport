@@ -171,6 +171,25 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
                             if artist_tracks_count >= limit_per_source:
                                 break
 
+                    # Third fallback: fetch all albums and their tracks
+                    if artist_tracks_count < max(1, limit_per_source // 2):
+                        logger.info(
+                            "Still only %d tracks; fetching all albums for %s",
+                            artist_tracks_count,
+                            entry.artist,
+                        )
+                        album_tracks = client.get_artist_all_tracks(
+                            artist.id, limit=limit_per_source * 2
+                        )
+                        for t in album_tracks:
+                            if t.id not in seen_ids:
+                                matches, _ = _artist_name_matches(t, entry.artist)
+                                if matches:
+                                    _add(t)
+                                    artist_tracks_count += 1
+                                    if artist_tracks_count >= limit_per_source:
+                                        break
+
                 logger.info(
                     "Found %d tracks for artist: %s", artist_tracks_count, entry.artist
                 )
