@@ -153,7 +153,8 @@ def generate_playlist(  # pylint: disable=too-many-arguments,too-many-locals,too
                         artist_tracks_count,
                         entry.artist,
                     )
-                    candidates = client.search_track_candidates(
+                    # Try broader artist search (finds tracks by artist, including features)
+                    candidates = client.search_tracks_by_artist(
                         entry.artist, limit=limit_per_source
                     )
                     for candidate in candidates:

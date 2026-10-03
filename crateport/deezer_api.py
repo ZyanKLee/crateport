@@ -463,6 +463,35 @@ class DeezerClient:
             return []
         return data.get("data", [])
 
+    def search_tracks_by_artist(
+        self, artist: str, limit: int = 5
+    ) -> list[dict[str, Any]]:
+        """Search for tracks by artist name (including featured tracks).
+
+        Uses a broad artist search instead of track name search, to find
+        all tracks by an artist regardless of track title.
+
+        Parameters
+        ----------
+        artist:
+            Artist name to search for
+        limit:
+            Maximum number of tracks to return
+
+        Returns
+        -------
+        List of track dicts from Deezer API
+        """
+        query = f'artist:"{artist}"'
+        try:
+            data = self._get("/search/track", {"q": query, "limit": limit})
+        except (DeezerTimeoutError, DeezerAPIError) as exc:
+            logger.warning(
+                "Deezer API error searching tracks for artist %r: %s", artist, exc
+            )
+            return []
+        return data.get("data", [])
+
     def search_track(
         self,
         title: str,
