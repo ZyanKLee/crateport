@@ -697,9 +697,9 @@ def _enrich_artist_matches(
     """Fetch full artist data and cache all matches."""
     enriched = []
     for match in matches:
-        full_data = client._get(
+        full_data = client._get(  # pylint: disable=protected-access
             f"/artist/{match['id']}"
-        )  # pylint: disable=protected-access
+        )
         enriched.append(full_data)
         _cache_artist_search_result(db, name, full_data["id"])
     return enriched
